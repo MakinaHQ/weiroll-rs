@@ -31,4 +31,10 @@ pub enum WeirollError {
 
     #[error("command not visible here")]
     CommandNotVisible,
+
+    #[error("a command takes at most 32 argument slots, got {0}")]
+    TooManyArguments(usize),
+
+    #[error("a plan uses at most 128 state slots, got {0}")]
+    TooManyStateSlots(usize),
 }

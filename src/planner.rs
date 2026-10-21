@@ -200,6 +200,12 @@ impl Planner {
             let mut args =
                 self.build_command_args(command, &ps.return_slot_map, &ps.literal_slot_map)?;
 
+            // The VM reads at most 32 index bytes for an extended command; `resize` below
+            // would otherwise drop the excess silently.
+            if args.len() > 32 {
+                return Err(WeirollError::TooManyArguments(args.len()));
+            }
+
             if args.len() > 6 {
                 flags |= CommandFlags::EXTENDED_COMMAND;
             }
@@ -426,6 +432,12 @@ impl Planner {
         };
 
         let encoded_commands = self.build_commands(&mut ps)?;
+
+        // Slot indices are 7 bits (the top bit flags a dynamic value), so a larger state
+        // would alias other slots.
+        if ps.state.len() > 128 {
+            return Err(WeirollError::TooManyStateSlots(ps.state.len()));
+        }
 
         Ok((encoded_commands, ps.state))
     }
@@ -1341,5 +1353,63 @@ mod tests {
         assert_ne!(commands[0][5], IDX_TUPLE_START);
         assert_eq!(commands[1][5], IDX_TUPLE_START);
         assert_eq!(commands[1][8], IDX_DYNAMIC_END);
+    }
+
+    #[test]
+    fn test_planner_rejects_more_than_32_argument_slots() {
+        let words = |n: u64| -> Vec<Value> { (0..n).map(|i| U256::from(i).into()).collect() };
+
+        // |fc| + 30 words + |fb| = 32 slots: the most a command can hold
+        let mut planner = Planner::default();
+        planner
+            .call(
+                addr(),
+                CommandFlags::CALL,
+                takesBytesCall::SELECTOR,
+                vec![Value::DynamicTuple(words(30))],
+                DynSolType::Bool,
+                None,
+            )
+            .expect("Could not add call");
+        let (commands, _) = planner.plan(vec![]).expect("32 slots fit");
+        assert_eq!(commands[1][31], IDX_DYNAMIC_END);
+
+        // one more word no longer fits, and must not be silently truncated
+        let mut planner = Planner::default();
+        planner
+            .call(
+                addr(),
+                CommandFlags::CALL,
+                takesBytesCall::SELECTOR,
+                vec![Value::DynamicTuple(words(31))],
+                DynSolType::Bool,
+                None,
+            )
+            .expect("Could not add call");
+        assert_eq!(
+            planner.plan(vec![]).unwrap_err(),
+            WeirollError::TooManyArguments(33)
+        );
+    }
+
+    #[test]
+    fn test_planner_rejects_more_than_128_state_slots() {
+        let mut planner = Planner::default();
+        for i in 0..65u64 {
+            planner
+                .call(
+                    addr(),
+                    CommandFlags::CALL,
+                    addCall::SELECTOR,
+                    vec![U256::from(2 * i).into(), U256::from(2 * i + 1).into()],
+                    DynSolType::Uint(256),
+                    None,
+                )
+                .expect("Could not add call");
+        }
+        assert_eq!(
+            planner.plan(vec![]).unwrap_err(),
+            WeirollError::TooManyStateSlots(130)
+        );
     }
 }
