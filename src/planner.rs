@@ -253,6 +253,9 @@ impl Planner {
                 encoded_commands.push(cmd.to_vec().into());
 
                 // use the next command for the actual args
+                if args.len() > 32 {
+                    return Err(WeirollError::ArgumentCountMismatch);
+                }
                 args.push(IDX_END_OF_ARGS);
                 args.resize(32, 0);
 
