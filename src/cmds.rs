@@ -104,6 +104,11 @@ pub enum Value {
     Array(Vec<Value>),
     FixedArray(Vec<Value>),
     Tuple(Vec<Value>),
+    /// A tuple that is always ABI-encoded as a dynamic type (offset in the head, members in
+    /// the tail), even when every member is static. The tail is exactly the members' words,
+    /// so `DynamicTuple([len, w0, .., wn])` encodes the same as a `bytes` argument of `len`
+    /// bytes whose content is `w0 ‖ .. ‖ wn`: a way to pass runtime-built bytes.
+    DynamicTuple(Vec<Value>),
     State(Vec<Bytes>),
 }
 
@@ -132,6 +137,7 @@ impl Value {
             Value::Literal(l) => l.dynamic(),
             Value::Return(r) => r.dynamic(),
             Value::Tuple(values) => values.iter().any(|v| v.is_dynamic()),
+            Value::DynamicTuple(_) => true,
         }
     }
 }
